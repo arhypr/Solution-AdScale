@@ -1,0 +1,35 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+LAYOUT_TOP_DOWN()
+
+title Component Diagram — Statistics Service (TO-BE)
+
+Container(stats, "Statistics Service", "Python", "Потоковая запись событий в ClickHouse")
+
+System_Boundary(statsComponents, "Statistics Service Components") {
+    Component(consumer, "Kafka Consumer", "Python (Kafka-Python)", "Потребляет топики impressions, clicks, bid-wins из Kafka")
+    Component(deserializer, "Avro Deserializer", "Python (Avro)", "Десериализует события из Avro в объекты")
+    Component(aggregator, "Window Aggregator", "Python", "Оконная агрегация (минутные, часовые срезы)")
+    Component(dbWriter, "ClickHouse Writer", "Python", "Пакетная вставка в ClickHouse (батчами по 1000 записей)")
+    Component(retryHandler, "Retry Handler", "Python", "Повторные попытки при сбоях записи (экспоненциальная задержка)")
+    Component(metricsCollector, "Metrics", "Python", "Отправка метрик в Prometheus")
+}
+
+' Внутренние связи
+Rel(consumer, deserializer, "Полученные сообщения", "")
+Rel(deserializer, aggregator, "События", "")
+Rel(aggregator, dbWriter, "Агрегированные записи", "")
+Rel(dbWriter, retryHandler, "При ошибке", "")
+Rel(retryHandler, dbWriter, "Повтор", "")
+Rel(consumer, metricsCollector, "Метрики потребления (lag)", "")
+
+' Внешние связи
+Rel(consumer, kafka, "Чтение", "Kafka Protocol")
+Rel(dbWriter, clickhouse, "Вставка данных", "ClickHouse Protocol (TCP)")
+
+ContainerDb(kafka2, "Kafka", "Apache Kafka", "Топики: impressions, clicks, bid-wins")
+ContainerDb(clickhouse2, "ClickHouse", "ClickHouse", "Хранилище событий (партицировано по дате)")
+
+@enduml
