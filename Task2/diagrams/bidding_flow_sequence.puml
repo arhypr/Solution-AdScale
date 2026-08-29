@@ -1,0 +1,34 @@
+@startuml
+title Sequence Diagram — Обработка Bid Request через Bidding Service
+
+actor "DSP" as dsp
+participant "API Gateway" as gateway
+participant "Bidding Service" as bid
+participant "Redis Cluster" as redis
+participant "Kafka" as kafka
+
+dsp -> gateway: POST /openrtb/bid (OpenRTB)
+activate gateway
+
+gateway -> gateway: Аутентификация, Rate Limiting
+gateway -> bid: gRPC PlaceBid (BidRequest)
+activate bid
+
+bid -> redis: GET bids for placement + campaigns
+activate redis
+redis --> bid: данные ставок и кампаний
+deactivate redis
+
+bid -> bid: Фильтрация, сортировка, выбор победителя
+bid -> kafka: Отправка события bid_win/request_metrics (асинхронно)
+activate kafka
+kafka --> bid: ACK
+deactivate kafka
+
+bid --> gateway: gRPC BidResponse (win, price, creative_id)
+deactivate bid
+
+gateway --> dsp: OpenRTB Response
+deactivate gateway
+
+@enduml
