@@ -1,0 +1,120 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+LAYOUT_LEFT_RIGHT()
+
+title C4 Container Diagram — AdScale (TO-BE, через год)
+
+' ====================== Акторы ======================
+Person(advertiser, "Рекламодатель", "Управляет кампаниями, бюджетами и ставками через личный кабинет")
+Person_Ext(endUser, "Пользователь сайта/приложения", "Просматривает рекламу, кликает по баннерам")
+
+System_Ext(dspPartner, "DSP-партнёр", "Отправляет bid requests, получает bid responses по OpenRTB")
+System_Ext(paymentGateway, "Платёжный шлюз", "Обработка пополнения рекламных бюджетов")
+
+' ====================== API Gateway ======================
+Container(gateway, "API Gateway", "Kong/Envoy", "Маршрутизация, аутентификация, rate limiting, агрегация")
+
+' ====================== Микросервисы ======================
+System_Boundary(microservices, "AdScale Microservices") {
+
+    Container(adServer, "Ad Server", "Go", "Принимает bid requests, определяет пользователя, подбирает кандидатов, передаёт в Auction Engine через gRPC")
+    Container(auctionEngine, "Auction Engine", "C++", "Взвешивание ставок, бизнес-правила, расчёт победителя. Использует кэш Redis для ставок/кампаний")
+    Container(deliveryService, "Delivery Service", "Node.js", "Формирует HTML/JS-разметку баннера и HTTP response")
+    Container(statsService, "Statistics Service", "Python", "Потоковый приём событий (показы, клики) из Kafka, запись в ClickHouse")
+    Container(financialService, "Financial Service", "Go", "Списание средств, выставление счетов, управление балансами (своя БД)")
+    Container(analyticsService, "Analytics Service", "Python", "Запросы к read-replica PostgreSQL и витринам данных")
+    Container(adCabinet, "Advertiser Dashboard", "Node.js + React", "Web UI: управление кампаниями, отчётность")
+}
+
+' ====================== Инфраструктурные компоненты ======================
+ContainerDb(postgresPrimary, "PostgreSQL Primary", "PostgreSQL", "OLTP: кампании, ставки, финансы, пользователи")
+ContainerDb(postgresReplica, "PostgreSQL Read Replica", "PostgreSQL", "Реплика для аналитических запросов и отчётности")
+ContainerDb(clickhouse, "ClickHouse", "ClickHouse", "Хранилище событий (показы, клики, конверсии) для быстрой аналитики")
+Container(redis, "Redis Cluster", "Redis", "Кэш для ставок, кампаний, таргетинговых данных (in-memory)")
+Container(kafka, "Kafka", "Apache Kafka", "Брокер событий: показы, клики, метрики, обновления кэша")
+Container(streamProcessor, "Stream Processor", "Flink/Spark", "Потоковая обработка: агрегация, обогащение, оконные вычисления")
+
+' ====================== Связи ======================
+
+' Внешние
+Rel_U(dspPartner, gateway, "Bid requests / responses", "HTTPS / OpenRTB")
+Rel_U(endUser, gateway, "Просмотр рекламы и клики", "HTTPS")
+Rel(advertiser, gateway, "Управляет кампаниями и бюджетами", "HTTPS")
+Rel(gateway, paymentGateway, "Пополнение бюджета", "HTTPS / REST")
+
+' Маршрутизация через Gateway
+Rel(gateway, adServer, "Маршрутизация bid requests", "HTTP/gRPC")
+Rel(gateway, adCabinet, "Маршрутизация UI запросов", "HTTP")
+Rel(gateway, financialService, "Маршрутизация финансовых операций", "HTTP/gRPC")
+Rel(gateway, analyticsService, "Маршрутизация аналитических запросов", "HTTP")
+
+' Внутреннее взаимодействие микросервисов
+Rel(adServer, auctionEngine, "Вызов аукциона", "gRPC")
+Rel(auctionEngine, deliveryService, "Передача победителя", "gRPC")
+Rel(deliveryService, kafka, "Отправка событий (показы/клики)", "Kafka Producer")
+Rel(auctionEngine, kafka, "Отправка метрик аукциона", "Kafka Producer")
+Rel(financialService, kafka, "Отправка финансовых событий", "Kafka Producer")
+
+' Потоковая обработка
+Rel(kafka, streamProcessor, "Потребление событий", "Kafka Consumer")
+Rel(streamProcessor, clickhouse, "Запись агрегированных данных", "JDBC")
+Rel(streamProcessor, redis, "Обновление кэша (ставки, кампании)", "Redis Protocol")
+
+' Запись/чтение БД
+Rel(auctionEngine, redis, "Чтение кэша (кампании, ставки)", "Redis Protocol")
+Rel(adServer, redis, "Чтение данных таргетинга", "Redis Protocol")
+Rel(financialService, postgresPrimary, "Транзакции, балансы", "JDBC")
+Rel(adCabinet, postgresPrimary, "CRUD кампаний", "JDBC")
+Rel(analyticsService, postgresReplica, "Аналитические запросы", "JDBC")
+Rel(analyticsService, clickhouse, "Запросы событийной аналитики", "JDBC")
+
+' Репликация
+Rel(postgresPrimary, postgresReplica, "Репликация", "WAL")
+
+' Наблюдаемость
+Container(monitoring, "Monitoring", "Prometheus/Grafana/Jaeger", "Сбор метрик, логов, трассировка")
+Rel(kafka, monitoring, "Метрики", "Prometheus")
+Rel(redis, monitoring, "Метрики", "Prometheus")
+Rel(postgresPrimary, monitoring, "Метрики", "Prometheus")
+Rel(auctionEngine, monitoring, "Трассировка", "Jaeger")
+
+' ====================== Аннотации улучшений ======================
+note right of auctionEngine
+  **✅ Выделен в микросервис**
+  Кэширование, асинхронное обновление,
+  масштабирование независимо
+end note
+
+note right of redis
+  **✅ Кэш-слой**
+  Снижение нагрузки на БД
+  и улучшение P95
+end note
+
+note right of kafka
+  **✅ Асинхронная буферизация**
+  Разделение критических
+  и некритичных потоков
+end note
+
+note right of postgresReplica
+  **✅ Read-реплика**
+  Аналитика не мешает OLTP
+end note
+
+note right of clickhouse
+  **✅ Специализированное хранилище**
+  Быстрая агрегация событий
+end note
+
+legend right
+  <#00AA00> **Целевые метрики**
+  RPS ≥ 50 000
+  P95 latency ≤ 80 ms (аукцион)
+  SLA 99.9%
+  Мультирегиональность
+  CI/CD + Kubernetes
+endlegend
+@enduml

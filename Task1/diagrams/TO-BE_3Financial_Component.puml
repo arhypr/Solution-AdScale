@@ -1,0 +1,41 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+LAYOUT_TOP_DOWN()
+
+title Component Diagram — Financial Service (TO-BE)
+
+Container(financial, "Financial Service", "Go", "Управление балансами, списания, транзакции")
+
+System_Boundary(financialComponents, "Financial Service Components") {
+    Component(api, "REST/gRPC API", "Go (gRPC Gateway)", "Принимает запросы пополнения баланса от Advertiser Dashboard")
+    Component(consumer, "Kafka Consumer", "Go", "Потребляет топик bid-wins для списания средств")
+    Component(balanceManager, "Balance Manager", "Go", "Логика списания/пополнения с проверкой достаточности")
+    Component(txManager, "Transaction Manager", "Go", "Управление транзакциями БД (ACID)")
+    Component(dbRepo, "PostgreSQL Repository", "Go", "CRUD балансов, записей транзакций")
+    Component(producer, "Kafka Producer", "Go", "Отправляет события budget-updates в Kafka")
+    Component(circuitBreaker, "Circuit Breaker", "Go", "Защита при вызовах платёжного шлюза")
+    Component(metrics, "Metrics", "Go", "Метрики для Prometheus")
+}
+
+' Внутренние связи
+Rel(api, balanceManager, "Запрос пополнения", "")
+Rel(consumer, balanceManager, "Событие win (цена)", "")
+Rel(balanceManager, txManager, "Начать транзакцию", "")
+Rel(txManager, dbRepo, "Запись/чтение", "")
+Rel(balanceManager, producer, "Отправить budget-updates", "")
+Rel(balanceManager, circuitBreaker, "Вызов платёжного шлюза при пополнении", "")
+Rel(balanceManager, metrics, "Метрики (балансы, ошибки)", "")
+
+' Внешние связи
+Rel(api, paymentGateway, "Пополнение бюджета", "HTTPS")
+Rel(consumer, kafka, "Чтение bid-wins", "Kafka Protocol")
+Rel(producer, kafka, "Отправка budget-updates", "Kafka Protocol")
+Rel(dbRepo, postgres, "Запись/чтение", "JDBC")
+
+ContainerDb(kafka2, "Kafka", "Apache Kafka", "Топики: bid-wins, budget-updates")
+ContainerDb(postgres2, "PostgreSQL (Financial)", "PostgreSQL", "Балансы, транзакции (ACID)")
+System_Ext(paymentGateway2, "Платёжный шлюз", "Внешний")
+
+@enduml

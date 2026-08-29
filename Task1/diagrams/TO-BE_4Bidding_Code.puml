@@ -1,0 +1,166 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title Class Diagram — Bidding Service (Code level, initial design)
+
+' ===== DTOs / Data Objects =====
+class BidRequest {
+    +String requestId
+    +String userId
+    +String deviceId
+    +String ip
+    +String userAgent
+    +String placementId
+    +List<String> siteCategories
+    +Map<String,String> targeting
+    +Long timestamp
+    +getPlacementId()
+    +getTargeting()
+}
+
+class BidResponse {
+    +String requestId
+    +Boolean win
+    +Double price
+    +String creativeId
+    +String campaignId
+    +String adTag
+    +Long processingTimeMs
+    +getWin()
+    +getPrice()
+}
+
+class Campaign {
+    +String campaignId
+    +String advertiserId
+    +Double dailyBudget
+    +Double remainingBudget
+    +Date startDate
+    +Date endDate
+    +Status status
+    +Targeting targeting
+    +List<Bid> bids
+    +isActive()
+    +hasBudget()
+}
+
+class Bid {
+    +String bidId
+    +String campaignId
+    +String placementId
+    +Double price
+    +String creativeId
+    +Integer priority
+    +getCampaignId()
+    +getPlacementId()
+}
+
+class Creative {
+    +String creativeId
+    +String campaignId
+    +String htmlTemplate
+    +String imageUrl
+    +String landingUrl
+    +getCreative()
+}
+
+class Targeting {
+    +List<String> geo
+    +List<String> deviceTypes
+    +List<String> os
+    +List<String> browsers
+    +TimeRange timeRange
+    +FrequencyCap frequencyCap
+    +match(Request)
+}
+
+class Budget {
+    +String campaignId
+    +Double dailyBudget
+    +Double spentToday
+    +Double remaining
+    +Boolean hasRemaining()
+    +spend(amount)
+}
+
+' ===== Services =====
+class BiddingService {
+    +BidResponse placeBid(BidRequest request)
+    -validateRequest(BidRequest)
+    -AuctionResult runAuction(List<Candidate>)
+    -sendMetrics(BidRequest, long latency)
+}
+
+class AuctionEngine {
+    +AuctionResult executeAuction(List<Bid> bids, Targeting targeting)
+    -filterCandidates(List<Bid>, Targeting)
+    -sortByPrice(List<Bid>)
+    -selectWinner(List<Bid>)
+}
+
+class CacheManager {
+    +Campaign getCampaign(String campaignId)
+    +List<Bid> getBidsForPlacement(String placementId)
+    +Targeting getTargeting(String campaignId)
+    +Budget getBudget(String campaignId)
+    +void invalidate(String key)
+    +void warmUp()
+}
+
+class KafkaProducer {
+    +void sendBidWin(BidWinEvent event)
+    +void sendBidLoss(BidLossEvent event)
+    +void sendMetrics(BidMetrics metrics)
+}
+
+class MetricsCollector {
+    +void recordLatency(String operation, long ms)
+    +void recordRPS(String endpoint)
+    +void recordErrors(String type)
+    +void incrementCounter(String name)
+}
+
+' ===== Data access =====
+interface Cache {
+    +get(key)
+    +set(key, value, ttl)
+    +delete(key)
+}
+
+class RedisCache implements Cache {
+    -JedisCluster redis
+    +get(key)
+    +set(key, value, ttl)
+    +delete(key)
+}
+
+' ===== Relationships =====
+BiddingService --> AuctionEngine : uses
+BiddingService --> CacheManager : uses
+BiddingService --> KafkaProducer : sends events
+BiddingService --> MetricsCollector : records
+AuctionEngine --> CacheManager : reads bids/campaigns
+AuctionEngine --> Budget : checks
+CacheManager --> RedisCache : uses
+
+' Associations
+BidRequest "1" --> "0..1" BidResponse : produces
+Campaign "1" --> "*" Bid : contains
+Campaign "1" --> "1" Targeting : has
+Campaign "1" --> "1" Budget : has
+Bid "1" --> "1" Creative : references
+
+' ===== Enums =====
+enum Status {
+    ACTIVE
+    PAUSED
+    ENDED
+}
+
+enum AuctionResult {
+    WIN
+    LOSS
+    TIMEOUT
+}
+
+@enduml

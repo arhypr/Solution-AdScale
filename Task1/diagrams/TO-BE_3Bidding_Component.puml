@@ -1,0 +1,40 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+LAYOUT_TOP_DOWN()
+
+title Component Diagram — Bidding Service (TO-BE)
+
+Container(bidding, "Bidding Service", "C++ / Go", "Обработка bid requests, проведение аукциона")
+
+System_Boundary(biddingComponents, "Bidding Service Components") {
+    Component(api, "gRPC API", "gRPC (Protobuf)", "Принимает BidRequest от Ad Server через API Gateway")
+    Component(validator, "Request Validator", "Go", "Валидация запроса, проверка обязательных полей")
+    Component(cacheReader, "Cache Reader", "Go", "Читает кэш Redis: кампании, ставки, таргетинг")
+    Component(auctionEngine, "Auction Engine", "C++", "Применяет бизнес-правила, фильтрацию, сортировку, выбор победителя")
+    Component(budgetChecker, "Budget Checker", "Go", "Проверяет остаток бюджета кампании (по кэшу)")
+    Component(producer, "Kafka Producer", "Go", "Отправляет события win/loss и метрики в Kafka")
+    Component(metrics, "Metrics Collector", "Go", "Собирает метрики latency, RPS, ошибки для Prometheus")
+    Component(cacheUpdater, "Cache Updater", "Go", "Потребляет события campaign-updates из Kafka для обновления Redis")
+}
+
+' Взаимодействие компонентов
+Rel(api, validator, "Передаёт запрос", "")
+Rel(validator, cacheReader, "Запрос данных", "")
+Rel(cacheReader, auctionEngine, "Передаёт кандидатов", "")
+Rel(auctionEngine, budgetChecker, "Запрос бюджета", "")
+Rel(budgetChecker, auctionEngine, "Результат (OK/FAIL)", "")
+Rel(auctionEngine, producer, "Отправка события (win/loss)", "")
+Rel(auctionEngine, metrics, "Отправка метрик", "")
+
+' Внешние связи
+Rel(cacheReader, redis, "Чтение", "Redis Protocol")
+Rel(producer, kafka, "Отправка", "Kafka Protocol")
+Rel(cacheUpdater, kafka, "Потребление", "Kafka Protocol")
+Rel(cacheUpdater, redis, "Запись обновлений", "Redis Protocol")
+
+ContainerDb(redis2, "Redis Cluster", "Redis", "Кэш кампаний, ставок, таргетинга")
+ContainerDb(kafka2, "Kafka", "Apache Kafka", "Топики: bid-wins, campaign-updates")
+
+@enduml

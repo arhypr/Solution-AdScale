@@ -1,0 +1,36 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+LAYOUT_TOP_DOWN()
+
+title System Context Diagram — AdScale (TO-BE, через год)
+
+' Акторы (люди)
+Person(advertiser, "Рекламодатель", "Управляет рекламными кампаниями, бюджетами, ставками через личный кабинет")
+Person_Ext(endUser, "Пользователь сайта/приложения", "Просматривает рекламу, кликает по баннерам")
+
+' Внешние системы
+System_Ext(dsp, "DSP-партнёр", "Отправляет bid requests, получает bid responses по OpenRTB")
+System_Ext(paymentGateway, "Платёжный шлюз", "Обработка пополнения рекламных бюджетов")
+
+' Наша система
+System(adscale, "AdScale", "SaaS-платформа для размещения цифровой рекламы\n(микросервисная архитектура, событийно-ориентированная)")
+
+' Связи
+Rel(advertiser, adscale, "Управляет кампаниями, просматривает отчётность", "HTTPS")
+Rel(endUser, adscale, "Просматривает рекламу, совершает клики", "HTTPS")
+Rel_Back(dsp, adscale, "Bid requests / responses", "HTTPS / OpenRTB")
+Rel(adscale, paymentGateway, "Пополнение бюджета", "HTTPS / REST")
+
+' Дополнительные аннотации
+legend right
+  <#00AA00> **Целевые метрики**
+  RPS ≥ 50 000
+  P95 latency ≤ 80 мс (аукцион)
+  SLA 99.9%
+  Мультирегиональное развёртывание
+  CI/CD + Kubernetes
+endlegend
+
+@enduml

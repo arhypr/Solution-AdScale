@@ -1,0 +1,61 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Data Architecture — AdScale TO-BE
+
+' Сервисы и их БД
+Container(bidding, "Bidding Service", "C++/Go", "Аукцион")
+Container(campaign, "Campaign Service", "Go", "Управление кампаниями")
+Container(stats, "Statistics Service", "Python", "Запись событий")
+Container(analytics, "Analytics Service", "Python", "Отчёты и аналитика")
+Container(financial, "Financial Service", "Go", "Финансовые операции")
+Container(delivery, "Delivery Service", "Node.js", "Доставка баннеров")
+
+' Базы данных
+ContainerDb(pgBid, "PostgreSQL (Bidding)", "PostgreSQL", "Хранилище ставок, кампаний (source)")
+ContainerDb(pgCamp, "PostgreSQL (Campaign)", "PostgreSQL", "CRUD кампаний")
+ContainerDb(pgFin, "PostgreSQL (Financial)", "PostgreSQL", "Балансы, транзакции")
+ContainerDb(ch, "ClickHouse", "ClickHouse", "События (показы, клики)")
+ContainerDb(pgReplica, "PostgreSQL Replica (Read-only)", "PostgreSQL", "Реплика для аналитики")
+
+' Кэш
+ContainerDb(redis, "Redis Cluster", "Redis", "Кэш кампаний, ставок, таргетинга")
+
+' Kafka
+Container(kafka, "Kafka", "Apache Kafka", "События")
+
+' Связи
+Rel(bidding, pgBid, "Запись/чтение", "JDBC")
+Rel(bidding, redis, "Чтение кэша", "Redis Protocol")
+Rel(campaign, pgCamp, "CRUD", "JDBC")
+Rel(financial, pgFin, "Транзакции", "JDBC")
+Rel(stats, ch, "Вставка событий", "JDBC")
+Rel(analytics, pgReplica, "Чтение", "JDBC")
+Rel(analytics, ch, "Чтение", "JDBC")
+Rel(delivery, redis, "Кэш разметки", "Redis")
+
+' Репликация
+Rel(pgCamp, pgReplica, "Репликация", "WAL")
+Rel(pgFin, pgReplica, "Репликация", "WAL")
+Rel(pgBid, pgReplica, "Репликация", "WAL")
+
+' События
+Rel(bidding, kafka, "Отправка win/loss", "Producer")
+Rel(delivery, kafka, "Отправка показов/кликов", "Producer")
+Rel(campaign, kafka, "Отправка обновлений", "Producer")
+Rel(kafka, financial, "Потребление win, budget-updates", "Consumer")
+Rel(kafka, stats, "Потребление показов/кликов", "Consumer")
+Rel(kafka, analytics, "Потребление показов/кликов", "Consumer")
+Rel(kafka, bidding, "Потребление обновлений кампаний", "Consumer")
+
+' Легенда
+legend right
+  **Цвета**
+  Синий – сервисы
+  Жёлтый – базы данных
+  Оранжевый – кэш
+  Красный – брокер событий
+  Серый – реплики
+endlegend
+
+@enduml

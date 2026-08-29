@@ -1,0 +1,43 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Component Diagram — RTB Integration with DSP
+
+System_Ext(dsp, "DSP Partner", "Отправляет Bid Requests по OpenRTB")
+
+System_Boundary(gw, "API Gateway (Kong)") {
+    Container(gateway, "Gateway", "Kong", "Аутентификация, Rate Limiting, Circuit Breaker, преобразование OpenRTB->gRPC")
+}
+
+System_Boundary(bs, "Bidding Service") {
+    Container(bid, "Bidding Engine", "C++/Go", "Приём gRPC, аукцион, кэширование")
+}
+
+System_Boundary(infra, "Infrastructure") {
+    Container(redis, "Redis Cluster", "Redis", "Кэш кампаний, ставок, таргетинга")
+    Container(kafka, "Kafka", "Apache Kafka", "События аукциона, показы, клики")
+    Container(db, "PostgreSQL Primary", "PostgreSQL", "OLTP (CRUD кампаний, ставок)")
+}
+
+System_Ext(services, "Other Services") {
+    Container(financial, "Financial Service", "Go", "Списание средств по событиям win")
+    Container(stats, "Statistics Service", "Python", "Потоковая запись в ClickHouse")
+    Container(analytics, "Analytics Service", "Python", "Аналитика по read-replica")
+}
+
+Rel(dsp, gateway, "HTTPS / OpenRTB", "bid request/response")
+Rel(gateway, bid, "gRPC", "PlaceBid")
+Rel(bid, redis, "Redis Protocol", "чтение кэша")
+Rel(bid, kafka, "Kafka Producer", "события win/loss")
+Rel(kafka, financial, "Kafka Consumer", "win события")
+Rel(kafka, stats, "Kafka Consumer", "события")
+Rel(db, redis, "асинхронное обновление", "через Change Data Capture или приложения")
+Rel(analytics, db, "read replica", "аналитика")
+Lay_Right(dsp, gateway)
+Lay_Down(gateway, bid)
+Lay_Down(bid, redis)
+Lay_Down(bid, kafka)
+Lay_Left(kafka, financial)
+Lay_Left(kafka, stats)
+
+@enduml
